@@ -38,16 +38,30 @@ FORBIDDEN = {
 
 
 def _python_sources() -> list[Path]:
-    roots = [PACKAGE_ROOT, PROJECT_ROOT / "benchmarks", PROJECT_ROOT / "tests"]
+    """Every file that can carry a hand-written regex.
+
+    Originally .py only. That is exactly how the fifth occurrence got through:
+    it landed in .github/workflows/ci.yml, in the commit correcting the record
+    about the fourth. Workflow YAML embeds Python heredocs, so it is subject to
+    the same escape-eating and must be scanned too.
+    """
+    roots = [
+        PACKAGE_ROOT,
+        PROJECT_ROOT / "benchmarks",
+        PROJECT_ROOT / "tests",
+        PROJECT_ROOT / ".github",
+    ]
+    patterns = ("*.py", "*.yml", "*.yaml")
     files: list[Path] = []
     for root in roots:
         if not root.is_dir():
             continue
-        files.extend(
-            f for f in root.rglob("*.py")
-            if ".venv" not in f.parts and "__pycache__" not in f.parts
-        )
-    return files
+        for pattern in patterns:
+            files.extend(
+                f for f in root.rglob(pattern)
+                if ".venv" not in f.parts and "__pycache__" not in f.parts
+            )
+    return sorted(set(files))
 
 
 @pytest.mark.parametrize("code,name", sorted(FORBIDDEN.items()))

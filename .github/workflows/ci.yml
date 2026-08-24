@@ -154,44 +154,54 @@ jobs:
       - name: Ablation on the no-fixture control
         run: uv run python benchmarks/ablation.py tests/fixtures/no_fixture_project
 
-      - name: Assert every rung still contributes
-        # `uv run`, not bare python3: the assertion shells out with
-        # sys.executable, and the system interpreter has no `quell` installed,
-        # so ablation.py exited 1 on import and the step failed for the wrong
-        # reason. Under uv run, sys.executable is the project venv.
+      - name: Assert the ladder still beats the baseline
+        # This previously asserted A1 > A0, A2 > A1, A3 > A2 -- i.e. that each
+        # rung improves on the cumulative arm before it. That measures ORDERING,
+        # not contribution: in a nested chain the rung tried first absorbs the
+        # gain from every rung that could have produced the same result. A
+        # leave-one-out lattice showed `fixtures` has zero marginal contribution
+        # on BOTH fixtures, while the old assertion credited it with the async
+        # headline. The assertion was passing on a false premise.
+        #
+        # What is actually defensible: the full ladder must beat literal stubs.
+        # Per-rung necessity is NOT asserted, because on async_orm_project the
+        # three rungs are perfect substitutes -- any one alone reaches 3, so
+        # leave-one-out reports 0 for all of them. Marginal contributions are
+        # printed for humans, not gated.
         run: |
           uv run python - <<'PY'
           import re, subprocess, sys
 
-          def yields(project):
+          def verified(project):
               out = subprocess.run(
                   [sys.executable, "benchmarks/ablation.py", project],
                   capture_output=True, text=True, check=True,
               ).stdout
+              print(out)
               found = {}
               for line in out.splitlines():
                   m = re.match(r"(A\d)\b.*?\s(\d+)\s+(\d+)%\s", line)
                   if m:
                       found[m.group(1)] = int(m.group(2))
+              if len(found) != 4:
+                  sys.exit(f"could not parse all four arms, got {found}")
               return found
 
-          asyncp = yields("tests/fixtures/async_orm_project")
-          nofix = yields("tests/fixtures/no_fixture_project")
-          print("async :", asyncp)
-          print("nofix :", nofix)
-
           failures = []
-          # Rung 1 (#143) carries the async fixture.
-          if not asyncp.get("A1", 0) > asyncp.get("A0", 0):
-              failures.append("rung 1 (conftest fixtures) no longer contributes on async_orm_project")
-          # Rung 2 (#144) is the only thing that fires on the no-fixture control.
-          if not nofix.get("A2", 0) > nofix.get("A1", 0):
-              failures.append("rung 2 (mined constructions) no longer contributes on no_fixture_project")
-          # Rung 3 (#145) shipped dead once already - pin it.
-          if not nofix.get("A3", 0) > nofix.get("A2", 0):
-              failures.append("rung 3 (guard-aware mocks) no longer contributes on no_fixture_project")
+          for project in (
+              "tests/fixtures/async_orm_project",
+              "tests/fixtures/no_fixture_project",
+          ):
+              arms = verified(project)
+              if arms["A0"] != 0:
+                  failures.append(f"{project}: literal stubs now verify {arms['A0']} - baseline moved")
+              if arms["A3"] <= arms["A0"]:
+                  failures.append(f"{project}: full ladder {arms['A3']} does not beat baseline {arms['A0']}")
 
           if failures:
-              sys.exit("ABLATION REGRESSION:\n  " + "\n  ".join(failures))
-          print("\nall three rungs still contribute")
+              print("ABLATION REGRESSION:")
+              for problem in failures:
+                  print("  " + problem)
+              sys.exit(1)
+          print("ladder still beats the baseline on both fixtures")
           PY

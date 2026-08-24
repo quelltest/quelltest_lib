@@ -34,6 +34,15 @@ from dataclasses import dataclass
 from pathlib import Path
 
 # Cumulative arms: each adds one rung to the previous.
+#
+# WARNING: a cumulative chain cannot attribute credit. Because A0 subset A1
+# subset A2 subset A3, a rung that merely runs FIRST absorbs the gain from
+# every rung that could have produced it. That is not a subtlety -- it
+# produced a wrong published claim. ABLATION.md previously read "#143 does
+# all the work here: 0 -> 3", when in fact `constructions` alone also
+# scores 3 on the same fixture and `fixtures` has zero marginal
+# contribution on both. Read leave_one_out() for attribution; this table is
+# only a narrative of adding rungs in a fixed order.
 ARMS: list[tuple[str, frozenset[str]]] = [
     ("A0 literal stubs only", frozenset()),
     ("A1 + conftest fixtures", frozenset({"fixtures"})),
@@ -112,6 +121,25 @@ def run_arm(project_root: Path, name: str, strategies: frozenset[str]) -> ArmRes
     )
 
 
+def leave_one_out(project_root: Path) -> dict[str, int]:
+    """Marginal contribution of each rung: full ladder minus that rung.
+
+    This is what actually attributes credit. A rung whose removal costs
+    nothing contributed nothing, regardless of where it sits in the
+    cumulative order.
+    """
+    from quell.synthesis.rule_engine import RuleEngine
+
+    full = frozenset(RuleEngine.ALL_STRATEGIES)
+    baseline = run_arm(project_root, "full", full).verified
+
+    marginal: dict[str, int] = {}
+    for rung in sorted(full):
+        without = run_arm(project_root, f"-{rung}", full - {rung}).verified
+        marginal[rung] = baseline - without
+    return marginal
+
+
 def main(argv: list[str]) -> int:
     if len(argv) < 2:
         print(__doc__)
@@ -134,6 +162,13 @@ def main(argv: list[str]) -> int:
             f"{r.name:<28}{r.gaps:>6}{r.generated:>6}{r.verified:>10}"
             f"{r.yield_pct:>7.0f}%{r.seconds:>7}"
         )
+
+    # Attribution, which the cumulative table above cannot provide.
+    print()
+    print("Marginal contribution (full ladder minus each rung):")
+    for rung, delta in leave_one_out(project_root).items():
+        note = "" if delta else "   <- removing it costs nothing here"
+        print(f"  {rung:<16}{delta:+d}{note}")
 
     base = results[0].verified
     best = max(results, key=lambda r: r.verified)

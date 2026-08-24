@@ -41,8 +41,40 @@ A3 + guard-aware mocks           4     4         3     75%    2.9
 in spec10 §0 was not a misconfiguration; it is what the engine did on
 async/ORM code before #143.
 
-**#143 does all the work here: 0 → 3.** Reusing the project's own `db_session`
-is the single change that moved this fixture.
+**RETRACTED — this claim was wrong.** It previously read *"#143 does all the
+work here: 0 → 3. Reusing the project's own `db_session` is the single change
+that moved this fixture."*
+
+A leave-one-out lattice falsifies it. `constructions` **alone** also scores 3
+on this fixture, and removing `fixtures` from the full ladder costs nothing:
+
+```
+Marginal contribution (full ladder minus each rung) — async_orm_project
+  constructions   +0
+  fixtures        +0
+  guard_mocks     +0
+```
+
+All three are **perfect substitutes** here: any one alone reaches 3, so no rung
+is necessary even though the ladder collectively takes 0 → 3. The cumulative
+A0 ⊂ A1 ⊂ A2 ⊂ A3 design credited rung 1 purely because it is tried first. A
+nested chain cannot distinguish "necessary" from "runs earliest", and reading
+attribution off one is a mistake this document made and published.
+
+On `no_fixture_project`, where the rungs are not substitutes, attribution is
+real:
+
+```
+  constructions   +2
+  fixtures        +0   <- removing it costs nothing here
+  guard_mocks     +1
+```
+
+So across both benchmark fixtures **`fixtures` (#143) has zero measured
+marginal contribution.** It may still matter on real projects — the async
+fixture was built around a `db_session`, and rung 2 only substitutes for it
+because that fixture also happens to contain literal construction sites — but
+nothing here demonstrates it.
 
 **#144 and #145 contribute nothing on this fixture — as predicted.** Both PRs
 stated that this fixture's parameters are already fixture-covered, so rungs 2
